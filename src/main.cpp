@@ -8,61 +8,85 @@
 #include <unistd.h>   // Needed for access(), fork(), execv()
 #include <sys/wait.h> // Needed for waitpid()
 
-std::vector<std::string> split_string(const std::string &s, char delimiter)
+/**
+ * @brief Tokenizes the input string, respecting single quotes.
+ *
+ * This function parses the input line into a vector of arguments.
+ * It handles single quotes ('') to treat quoted content, including spaces,
+ * as a single token. It also handles concatenation (e.g., 'a'b'c' -> "abc").
+ *
+ * @param input The raw input string from the user.
+ * @return std::vector<std::string> A vector of tokens (arguments).
+ */
+std::vector<std::string> tokenize_input(const std::string &input)
 {
-  std::stringstream ss(s);
-  std::vector<std::string> return_vect;
-  std::string token;
-  while (getline(ss, token, delimiter))
+  std::vector<std::string> tokens;
+  std::string current_token;
+  bool in_quote = false;
+  // This tracks if we've started building a token (even an empty one like '')
+  bool token_started = false;
+
+  for (char c : input)
   {
-    return_vect.push_back(token);
+    if (c == '\'')
+    {
+      in_quote = !in_quote;
+      token_started = true; // A quote always starts or is part of a token
+    }
+    else if (c == ' ' && !in_quote)
+    {
+      // Space outside quote is a delimiter
+      if (token_started)
+      {
+        tokens.push_back(current_token);
+        current_token.clear();
+        token_started = false;
+      }
+      // else, ignore multiple spaces (token_started is already false)
+    }
+    else
+    {
+      // Any other character
+      current_token += c;
+      token_started = true;
+    }
   }
-  return return_vect;
+
+  // Add the last token if it wasn't followed by a space
+  if (token_started)
+  {
+    tokens.push_back(current_token);
+  }
+
+  return tokens;
 }
 
-/**
- * @brief Checks for an executable file in the given PATH directories.
- *
- * @param filename The name of the file (command) to search for.
- * @param path_env A vector of directory paths from the PATH variable.
- * @return std::string The full path to the first executable file found, or an empty string if not found.
- */
 std::string checkFileInPath(std::string filename, std::vector<std::string> path_env)
 {
+  // ... (This function is correct, no changes needed) ...
   std::string filepath_str;
   for (int i = 0; i < path_env.size(); i++)
   {
-    // Handle empty strings in PATH (e.g., "::" or trailing ":")
     if (path_env[i].empty())
     {
       continue;
     }
-
-    // Use std::filesystem to correctly join the directory and filename
     std::filesystem::path full_path = std::filesystem::path(path_env[i]) / filename;
     filepath_str = full_path.string();
-
-    // The logic required by the challenge:
-    // 1. Check if the file exists.
     if (access(filepath_str.c_str(), F_OK) == 0)
     {
-      // 2. If it exists, check if it has execute permissions.
       if (access(filepath_str.c_str(), X_OK) == 0)
       {
-        // Found a file that exists AND is executable. Return it.
         return filepath_str;
       }
-      // If file exists but is NOT executable, we skip it and continue the loop.
     }
-    // If file does not exist in this directory, continue the loop.
   }
-  // Searched all directories and found no executable match.
   return "";
 }
 
 void handle_type_command(std::vector<std::string> arguments, std::vector<std::string> path)
 {
-  // handle multiple types like a shell: ex 'type exit echo type ls cat' will return 5 lines similar to a single
+  // ... (This function is correct, no changes needed) ...
   for (int i = 1; i < arguments.size(); i++)
   {
     if (arguments[i] == "echo" || arguments[i] == "exit" || arguments[i] == "type" || arguments[i] == "pwd" || arguments[i] == "cd")
@@ -71,7 +95,6 @@ void handle_type_command(std::vector<std::string> arguments, std::vector<std::st
     }
     else
     {
-      // FIX 2: Use arguments[i] instead of arguments[1]
       std::string filepath = checkFileInPath(arguments[i], path);
       if (filepath.length() != 0)
         std::cout << arguments[i] << " is " << filepath << "\n";
@@ -83,8 +106,9 @@ void handle_type_command(std::vector<std::string> arguments, std::vector<std::st
 
 void handle_change_directory(std::string directory)
 {
+  // ... (This function is correct, no changes needed) ...
   if (directory.empty() || directory == "~")
-  { // Handle "cd" or "cd ~"
+  {
     const char *home_dir = getenv("HOME");
     if (home_dir)
     {
@@ -92,7 +116,6 @@ void handle_change_directory(std::string directory)
     }
     else
     {
-      // Fallback or error if HOME is not set, though for this challenge it should be.
       std::cerr << "cd: HOME not set\n";
     }
   }
@@ -125,7 +148,21 @@ int main()
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
-  std::vector<std::string> path = split_string(getenv("PATH"), ':');
+  // We get the PATH once at the start
+  // Note: We are still using ':' as the delimiter. The challenge mentions
+  // OS-agnostic path handling, but for this course, ':' is fine.
+  std::vector<std::string> path;
+  const char *path_env_var = getenv("PATH");
+  if (path_env_var != NULL)
+  {
+    // Use stringstream to split the path, similar to old split_string
+    std::stringstream ss(path_env_var);
+    std::string segment;
+    while (std::getline(ss, segment, ':'))
+    {
+      path.push_back(segment);
+    }
+  }
 
   std::string input;
   std::vector<std::string> arguments;
@@ -135,7 +172,9 @@ int main()
     std::cout << "$ ";
     std::getline(std::cin, input);
 
-    arguments = split_string(input, ' ');
+    // 1. THIS IS THE FIRST BIG CHANGE
+    // Replace the simple split_string with our new tokenizer
+    arguments = tokenize_input(input);
 
     // Handle empty input
     if (arguments.empty() || arguments[0].empty())
@@ -145,21 +184,21 @@ int main()
 
     if (arguments[0] == "exit")
     {
-      // The challenge specifies "exit 0" but handles "exit" as well.
-      // Let's just handle "exit" and any argument.
       return 0;
     }
+    // 2. THIS IS THE SECOND BIG CHANGE
+    // Update 'echo' to print the processed tokens
     else if (arguments[0] == "echo")
     {
-      // Handle "echo" with no arguments
-      if (arguments.size() > 1)
+      for (size_t i = 1; i < arguments.size(); ++i)
       {
-        std::cout << input.substr(input.find(" ") + 1) << "\n";
+        std::cout << arguments[i];
+        if (i < arguments.size() - 1)
+        {
+          std::cout << " "; // Add space between arguments
+        }
       }
-      else
-      {
-        std::cout << "\n";
-      }
+      std::cout << "\n"; // Add newline at the end
     }
     else if (arguments[0] == "type")
     {
@@ -185,7 +224,6 @@ int main()
       }
       else if (arguments.size() == 1)
       {
-        // "cd" with no arguments, go home
         handle_change_directory("~");
       }
       else
@@ -195,50 +233,35 @@ int main()
     }
     else
     {
-      // This is for executing external commands.
-      // Now that checkFileInPath is fixed, this will also find the *correct* executable.
+      // This external command logic is now compatible with quotes
+      // thanks to the new tokenize_input function.
       std::string filepath = checkFileInPath(arguments[0], path);
       if (filepath.length() != 0)
       {
-        // We found the executable. Time to fork and exec.
-
-        // 1. Prepare arguments for execv
-        // std::vector<std::string> arguments already has the command and its args.
-        // We need a null-terminated array of C-style strings (char*).
         std::vector<char *> argv_c;
         for (const auto &arg : arguments)
         {
-          // We cast away const, which is generally unsafe, but required by
-          // the execv signature (which predates const). It's safe here
-          // as execv doesn't modify the strings.
           argv_c.push_back(const_cast<char *>(arg.c_str()));
         }
-        argv_c.push_back(NULL); // execv requires a NULL-terminated array
+        argv_c.push_back(NULL);
 
-        // 2. Fork the process
         pid_t child_pid = fork();
 
         if (child_pid == -1)
         {
-          // Fork failed
           perror("fork");
         }
         else if (child_pid == 0)
         {
-          // This is the child process
-          // execv replaces the current process image with the new program.
           if (execv(filepath.c_str(), argv_c.data()) == -1)
           {
-            // execv only returns if an error occurred
             perror("execv");
-            exit(1); // Exit child process with an error code
+            exit(1);
           }
         }
         else
         {
-          // This is the parent process (the shell)
           int status;
-          // Wait for the child process to terminate
           if (waitpid(child_pid, &status, 0) == -1)
           {
             perror("waitpid");
