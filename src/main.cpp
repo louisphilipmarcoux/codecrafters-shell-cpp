@@ -5,7 +5,8 @@
 #include <fstream>
 #include <filesystem>
 #include <stdbool.h>
-#include <unistd.h> // Needed for access()
+#include <unistd.h>   // Needed for access(), fork(), execv()
+#include <sys/wait.h> // Needed for waitpid()
 
 std::vector<std::string> split_string(const std::string &s, char delimiter)
 {
@@ -199,26 +200,50 @@ int main()
       std::string filepath = checkFileInPath(arguments[0], path);
       if (filepath.length() != 0)
       {
-        // This part for executing is not yet part of the challenge,
-        // but it's good that it's here and now correct.
-        // For now, let's just print a placeholder or comment it out if it causes issues.
-        // std::string command = "exec " + filepath + " " + input.substr(input.find(" ") + 1);
-        // std::system(command.c_str());
+        // We found the executable. Time to fork and exec.
 
-        // The "exec" functionality is for a later stage.
-        // Let's just print the "not found" message as per the current stage requirements
-        // if the command is not a builtin.
-        // Oh, wait, the user *has* an exec. Let's keep it.
-        // The test harness doesn't seem to be executing external commands yet,
-        // only "type". But if it does, this is fine.
-        // Ah, the user's *original* code had the `system` call. I'll leave it.
-        std::string command_args = "";
-        if (arguments.size() > 1)
+        // 1. Prepare arguments for execv
+        // std::vector<std::string> arguments already has the command and its args.
+        // We need a null-terminated array of C-style strings (char*).
+        std::vector<char *> argv_c;
+        for (const auto &arg : arguments)
         {
-          command_args = input.substr(input.find(" ") + 1);
+          // We cast away const, which is generally unsafe, but required by
+          // the execv signature (which predates const). It's safe here
+          // as execv doesn't modify the strings.
+          argv_c.push_back(const_cast<char *>(arg.c_str()));
         }
-        std::string command = filepath + " " + command_args;
-        std::system(command.c_str());
+        argv_c.push_back(NULL); // execv requires a NULL-terminated array
+
+        // 2. Fork the process
+        pid_t child_pid = fork();
+
+        if (child_pid == -1)
+        {
+          // Fork failed
+          perror("fork");
+        }
+        else if (child_pid == 0)
+        {
+          // This is the child process
+          // execv replaces the current process image with the new program.
+          if (execv(filepath.c_str(), argv_c.data()) == -1)
+          {
+            // execv only returns if an error occurred
+            perror("execv");
+            exit(1); // Exit child process with an error code
+          }
+        }
+        else
+        {
+          // This is the parent process (the shell)
+          int status;
+          // Wait for the child process to terminate
+          if (waitpid(child_pid, &status, 0) == -1)
+          {
+            perror("waitpid");
+          }
+        }
       }
       else
       {
